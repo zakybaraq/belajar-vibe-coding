@@ -1,32 +1,30 @@
-# Feature: Form Pendaftaran User
+# Feature: Login User
 
 ## Deskripsi
-Buat halaman form untuk daftar user baru. Simpan data user ke database.
+Buat sistem login user. Kalau email dan password benar, kasih token UUID.
 
 ---
 
 ## Yang Perlu Dibuat
 
 ### 1. Tabel Database
-Nama tabel: `users`
+Nama tabel: `sessions`
 
 Kolom:
 - `id` — angka, otomatis naik sendiri
-- `name` — teks, wajib diisi
-- `email` — teks, wajib diisi, tidak boleh sama dengan user lain
-- `password` — teks, wajib diisi, nanti diacak dulu sebelum disimpan
+- `token` — teks UUID, wajib diisi
+- `user_id` — angka, ambil dari tabel users
 - `created_at` — tanggal dan jam, otomatis terisi
 
 ---
 
 ### 2. Endpoint API
 
-**URL:** `POST /api/users`
+**URL:** `POST /api/users/login`
 
 **Request (yang dikirim):**
 ```json
 {
-  "name": "eko",
   "email": "eko@localhost",
   "password": "rahasia"
 }
@@ -35,14 +33,14 @@ Kolom:
 **Response Kalau Berhasil:**
 ```json
 {
-  "data": "OK"
+  "data": "token-yang-dihasilkan"
 }
 ```
 
-**Response Kalau Email Sudah Ada:**
+**Response Kalau Salah:**
 ```json
 {
-  "error": "email sudah terdaftar"
+  "error": "email atau password salah"
 }
 ```
 
@@ -63,114 +61,88 @@ src/
 
 ## Langkah-Langkah Pengerjaan
 
-### Langkah 1: Install Bcrypt
-Bcrypt itu工具 untuk mengacak password. Install dulu:
+### Langkah 1: Install UUID
+UUID itu alat untuk buat token unik. Install dulu:
 ```bash
-bun add bcrypt
+bun add uuid
+@types/uuid
 ```
 
-### Langkah 2: Ubah Schema Database
-Buka `src/db/schema.ts`, ganti jadi:
+### Langkah 2: Tambah Schema Sessions
+Buka `src/db/schema.ts`, tambah ini:
 ```typescript
-import { mysqlTable, varchar, int, timestamp } from 'drizzle-orm/mysql-core';
+import { mysqlTable, varchar, int, timestamp, serial } from 'drizzle-orm/mysql-core';
 
-export const users = mysqlTable('users', {
-  id: int('id').autoincrement().primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  email: varchar('email', { length: 255 }).notNull().unique(),
-  password: varchar('password', { length: 255 }).notNull(),
+export const sessions = mysqlTable('sessions', {
+  id: serial('id').autoincrement().primaryKey(),
+  token: varchar('token', { length: 255 }).notNull(),
+  userId: int('user_id').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 ```
 
-### Langkah 3: Buat Service
-Buat file `src/services/user-service.ts`:
+### Langkah 3: Tambah Method Login di Service
+Buka `src/services/user-service.ts`, tambah method:
 
 ```typescript
-import { db } from '../db';
-import { users } from '../db/schema';
-import { eq } from 'drizzle-orm';
-import bcrypt from 'bcrypt';
+import { v4 as uuidv4 } from 'uuid';
 
 class UserService {
-  async daftar(name: string, email: string, password: string) {
-    // Cek apakah email sudah terdaftar
-    const userSudahAda = await db.select().from(users).where(eq(users.email, email));
-    if (userSudahAda.length > 0) {
-      return { berhasil: false, pesan: 'email sudah terdaftar' };
+  async login(email: string, password: string) {
+    // Cari user berdasarkan email
+    const user = await db.select().from(users).where(eq(users.email, email));
+    if (user.length === 0) {
+      return { berhasil: false, pesan: 'email atau password salah' };
     }
 
-    // Acak password pakai bcrypt
-    const passwordDiacak = await bcrypt.hash(password, 10);
+    // Cek password pakai bcrypt
+    const passwordCocok = await bcrypt.compare(password, user[0].password);
+    if (!passwordCocok) {
+      return { berhasil: false, pesan: 'email atau password salah' };
+    }
 
-    // Simpan ke database
-    await db.insert(users).values({
-      name: name,
-      email: email,
-      password: passwordDiacak,
+    // Buat token UUID
+    const token = uuidv4();
+
+    // Simpan ke tabel sessions
+    await db.insert(sessions).values({
+      token: token,
+      userId: user[0].id,
     });
 
-    return { berhasil: true };
+    return { berhasil: true, token };
   }
 }
-
-export const userService = new UserService();
 ```
 
-### Langkah 4: Buat Route
-Buat file `src/routes/user-route.ts`:
+### Langkah 4: Tambah Route Login
+Buka `src/routes/user-route.ts`, tambah:
 
 ```typescript
-import { Elysia } from 'elysia';
+.post('/api/users/login', async ({ body, set }) => {
+  const { email, password } = body as {
+    email: string;
+    password: string;
+  };
 
-export const userRoute = new Elysia()
-  .post('/api/users', async ({ body, set }) => {
-    const { name, email, password } = body as {
-      name: string;
-      email: string;
-      password: string;
-    };
+  if (!email || !password) {
+    set.status = 400;
+    return { error: 'isi semua field' };
+  }
 
-    // Validasi sederhana
-    if (!name || !email || !password) {
-      set.status = 400;
-      return { error: 'isi semua field' };
-    }
+  const hasil = await userService.login(email, password);
 
-    const hasil = await userService.daftar(name, email, password);
+  if (!hasil.berhasil) {
+    set.status = 401;
+    return { error: hasil.pesan };
+  }
 
-    if (!hasil.berhasil) {
-      set.status = 409;
-      return { error: hasil.pesan };
-    }
-
-    set.status = 201;
-    return { data: 'OK' };
-  });
+  set.status = 200;
+  return { data: hasil.token };
+});
 ```
 
-Tambah import di atas:
-```typescript
-import { userService } from '../services/user-service';
-```
-
-### Langkah 5: Pasang Route ke Server
-Buka `src/index.ts`, tambah import dan use:
-
-```typescript
-import { Elysia } from 'elysia';
-import { cors } from '@elysiajs/cors';
-import { userRoute } from './routes/user-route';
-
-const app = new Elysia()
-  .use(cors())
-  .use(userRoute)
-  .listen(process.env.PORT || 3000);
-
-console.log(`Server running at ${app.server?.url}`);
-```
-
-### Langkah 6: Sync Database
+### Langkah 5: Sync Database
 Jalankan ini untuk buat tabel di database:
 ```bash
 bun run db:push
@@ -182,23 +154,23 @@ bun run db:push
 
 Pakai curl:
 ```bash
-# Daftar user baru
-curl -X POST http://localhost:3000/api/users \
+# Login berhasil
+curl -X POST http://localhost:3000/api/users/login \
   -H "Content-Type: application/json" \
-  -d '{"name":"eko","email":"eko@localhost","password":"rahasia"}'
+  -d '{"email":"eko@localhost","password":"rahasia"}'
 
-# Coba daftar lagi dengan email yang sama
-curl -X POST http://localhost:3000/api/users \
+# Login gagal
+curl -X POST http://localhost:3000/api/users/login \
   -H "Content-Type: application/json" \
-  -d '{"name":"eko","email":"eko@localhost","password":"rahasia"}'
+  -d '{"email":"eko@localhost","password":"salah"}'
 ```
 
 ---
 
 ## Catatan Penting
 
-1. **Password jangan disimpan mentah** — selalu pakai bcrypt untuk mengacak
-2. **bcrypt.hash()** — untuk menyimpan password
-3. **bcrypt.compare()** — untuk verifikasi password saat login (nanti)
-4. **Salt rounds = 10** — itu angka standar, aman dan tidak lambat
-5. **Email harus unik** — kalau sama, tolak dengan pesan "email sudah terdaftar"
+1. **bcrypt.compare()** — untuk cek password yang diinput sama hash di database
+2. **UUID** — selalu generate token baru setiap login
+3. **Satu user bisa banyak session** — tidak perlu hapus session lama
+4. **Logout** (nanti) — hapus row di tabel sessions berdasarkan token
+5. **Midtrans** (nanti) — validasi token dari header request
