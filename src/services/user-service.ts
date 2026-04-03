@@ -1,7 +1,8 @@
 import { db } from '../db';
-import { users } from '../db/schema';
+import { users, sessions } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
+import { v4 as uuidv4 } from 'uuid';
 
 class UserService {
   async daftar(name: string, email: string, password: string) {
@@ -19,6 +20,27 @@ class UserService {
     });
 
     return { berhasil: true };
+  }
+
+  async login(email: string, password: string) {
+    const user = await db.select().from(users).where(eq(users.email, email));
+    if (user.length === 0) {
+      return { berhasil: false, pesan: 'email atau password salah' };
+    }
+
+    const passwordCocok = await bcrypt.compare(password, user[0].password);
+    if (!passwordCocok) {
+      return { berhasil: false, pesan: 'email atau password salah' };
+    }
+
+    const token = uuidv4();
+
+    await db.insert(sessions).values({
+      token: token,
+      userId: user[0].id,
+    });
+
+    return { berhasil: true, token };
   }
 }
 
