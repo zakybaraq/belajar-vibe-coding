@@ -1,46 +1,35 @@
-# Feature: Login User
+# Feature: Get Current User
 
 ## Deskripsi
-Buat sistem login user. Kalau email dan password benar, kasih token UUID.
+Ambil data user yang sedang login berdasarkan token dari header Authorization.
 
 ---
 
-## Yang Perlu Dibuat
+## Endpoint API
 
-### 1. Tabel Database
-Nama tabel: `sessions`
+**URL:** `GET /api/users/current`
 
-Kolom:
-- `id` — angka, otomatis naik sendiri
-- `token` — teks UUID, wajib diisi
-- `user_id` — angka, ambil dari tabel users
-- `created_at` — tanggal dan jam, otomatis terisi
-
----
-
-### 2. Endpoint API
-
-**URL:** `POST /api/users/login`
-
-**Request (yang dikirim):**
-```json
-{
-  "email": "eko@localhost",
-  "password": "rahasia"
-}
+**Header:**
+```
+Authorization: Bearer <token>
 ```
 
 **Response Kalau Berhasil:**
 ```json
 {
-  "data": "token-yang-dihasilkan"
+  "data": {
+    "id": 1,
+    "name": "eko",
+    "email": "eko@localhost",
+    "created_at": "2026-04-03T12:00:00.000Z"
+  }
 }
 ```
 
-**Response Kalau Salah:**
+**Response Kalau Gagal:**
 ```json
 {
-  "error": "email atau password salah"
+  "error": "Unauthorized"
 }
 ```
 
@@ -50,102 +39,68 @@ Kolom:
 
 ```
 src/
-├── routes/          # Tempat simpan routing API
+├── routes/
 │   └── user-route.ts
-├── services/        # Tempat simpan logic bisnis
-│   └── user-service.ts
-└── db/             # Tempat simpan koneksi dan schema database
+└── services/
+    └── user-service.ts
 ```
 
 ---
 
 ## Langkah-Langkah Pengerjaan
 
-### Langkah 1: Install UUID
-UUID itu alat untuk buat token unik. Install dulu:
-```bash
-bun add uuid
-@types/uuid
-```
-
-### Langkah 2: Tambah Schema Sessions
-Buka `src/db/schema.ts`, tambah ini:
-```typescript
-import { mysqlTable, varchar, int, timestamp, serial } from 'drizzle-orm/mysql-core';
-
-export const sessions = mysqlTable('sessions', {
-  id: serial('id').autoincrement().primaryKey(),
-  token: varchar('token', { length: 255 }).notNull(),
-  userId: int('user_id').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
-```
-
-### Langkah 3: Tambah Method Login di Service
+### Langkah 1: Tambah Method getCurrentUser di Service
 Buka `src/services/user-service.ts`, tambah method:
 
 ```typescript
-import { v4 as uuidv4 } from 'uuid';
-
-class UserService {
-  async login(email: string, password: string) {
-    // Cari user berdasarkan email
-    const user = await db.select().from(users).where(eq(users.email, email));
-    if (user.length === 0) {
-      return { berhasil: false, pesan: 'email atau password salah' };
-    }
-
-    // Cek password pakai bcrypt
-    const passwordCocok = await bcrypt.compare(password, user[0].password);
-    if (!passwordCocok) {
-      return { berhasil: false, pesan: 'email atau password salah' };
-    }
-
-    // Buat token UUID
-    const token = uuidv4();
-
-    // Simpan ke tabel sessions
-    await db.insert(sessions).values({
-      token: token,
-      userId: user[0].id,
-    });
-
-    return { berhasil: true, token };
+async getCurrentUser(token: string) {
+  // Cari token di tabel sessions
+  const session = await db.select().from(sessions).where(eq(sessions.token, token));
+  if (session.length === 0) {
+    return { berhasil: false };
   }
+
+  // Ambil data user berdasarkan user_id
+  const user = await db.select().from(users).where(eq(users.id, session[0].userId));
+  if (user.length === 0) {
+    return { berhasil: false };
+  }
+
+  return {
+    berhasil: true,
+    user: {
+      id: user[0].id,
+      name: user[0].name,
+      email: user[0].email,
+      createdAt: user[0].createdAt,
+    }
+  };
 }
 ```
 
-### Langkah 4: Tambah Route Login
+### Langkah 2: Tambah Route Get Current User
 Buka `src/routes/user-route.ts`, tambah:
 
 ```typescript
-.post('/api/users/login', async ({ body, set }) => {
-  const { email, password } = body as {
-    email: string;
-    password: string;
-  };
-
-  if (!email || !password) {
-    set.status = 400;
-    return { error: 'isi semua field' };
+.get('/api/users/current', async ({ headers, set }) => {
+  const authHeader = headers['authorization'];
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    set.status = 401;
+    return { error: 'Unauthorized' };
   }
 
-  const hasil = await userService.login(email, password);
+  const token = authHeader.replace('Bearer ', '');
+  const hasil = await userService.getCurrentUser(token);
 
   if (!hasil.berhasil) {
     set.status = 401;
-    return { error: hasil.pesan };
+    return { error: 'Unauthorized' };
   }
 
   set.status = 200;
-  return { data: hasil.token };
+  return { data: hasil.user };
 });
-```
-
-### Langkah 5: Sync Database
-Jalankan ini untuk buat tabel di database:
-```bash
-bun run db:push
 ```
 
 ---
@@ -154,23 +109,25 @@ bun run db:push
 
 Pakai curl:
 ```bash
-# Login berhasil
-curl -X POST http://localhost:3000/api/users/login \
+# Login dulu dapat token
+TOKEN=$(curl -s -X POST http://localhost:3000/api/users/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"eko@localhost","password":"rahasia"}'
+  -d '{"email":"eko@localhost","password":"rahasia"}' | jq -r '.data')
 
-# Login gagal
-curl -X POST http://localhost:3000/api/users/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"eko@localhost","password":"salah"}'
+# Get current user
+curl -X GET http://localhost:3000/api/users/current \
+  -H "Authorization: Bearer $TOKEN"
+
+# Tanpa token (harus gagal)
+curl -X GET http://localhost:3000/api/users/current
 ```
 
 ---
 
 ## Catatan Penting
 
-1. **bcrypt.compare()** — untuk cek password yang diinput sama hash di database
-2. **UUID** — selalu generate token baru setiap login
-3. **Satu user bisa banyak session** — tidak perlu hapus session lama
-4. **Logout** (nanti) — hapus row di tabel sessions berdasarkan token
-5. **Midtrans** (nanti) — validasi token dari header request
+1. **Authorization header** — format: "Bearer <token>"
+2. **Cari di sessions table** — bukan langsung dari token ambil user
+3. **401 status** — untuk unauthorized access
+4. **401 vs 403** — 401 = tidak ada token/salah token, 403 = tidak punya izin (nanti)
+5. **Token expired** (nanti) — cek created_at di sessions tabel
