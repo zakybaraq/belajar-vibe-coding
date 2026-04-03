@@ -1,13 +1,13 @@
-# Feature: Get Current User
+# Feature: Logout User
 
 ## Deskripsi
-Ambil data user yang sedang login berdasarkan token dari header Authorization.
+Hapus session user yang sedang login baseado token dari header Authorization.
 
 ---
 
 ## Endpoint API
 
-**URL:** `GET /api/users/current`
+**URL:** `DELETE /api/users/logout`
 
 **Header:**
 ```
@@ -17,12 +17,7 @@ Authorization: Bearer <token>
 **Response Kalau Berhasil:**
 ```json
 {
-  "data": {
-    "id": 1,
-    "name": "eko",
-    "email": "eko@localhost",
-    "created_at": "2026-04-03T12:00:00.000Z"
-  }
+  "data": "OK"
 }
 ```
 
@@ -49,41 +44,30 @@ src/
 
 ## Langkah-Langkah Pengerjaan
 
-### Langkah 1: Tambah Method getCurrentUser di Service
+### Langkah 1: Tambah Method logout di Service
 Buka `src/services/user-service.ts`, tambah method:
 
 ```typescript
-async getCurrentUser(token: string) {
+async logout(token: string) {
   // Cari token di tabel sessions
   const session = await db.select().from(sessions).where(eq(sessions.token, token));
   if (session.length === 0) {
     return { berhasil: false };
   }
 
-  // Ambil data user berdasarkan user_id
-  const user = await db.select().from(users).where(eq(users.id, session[0].userId));
-  if (user.length === 0) {
-    return { berhasil: false };
-  }
+  // Hapus session
+  await db.delete(sessions).where(eq(sessions.token, token));
 
-  return {
-    berhasil: true,
-    user: {
-      id: user[0].id,
-      name: user[0].name,
-      email: user[0].email,
-      createdAt: user[0].createdAt,
-    }
-  };
+  return { berhasil: true };
 }
 ```
 
-### Langkah 2: Tambah Route Get Current User
+### Langkah 2: Tambah Route Logout
 Buka `src/routes/user-route.ts`, tambah:
 
 ```typescript
-.get('/api/users/current', async ({ headers, set }) => {
-  const authHeader = headers['authorization'];
+.delete('/api/users/logout', async ({ headers, set }) => {
+  const authHeader = headers['authorization'] as string;
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     set.status = 401;
@@ -91,7 +75,7 @@ Buka `src/routes/user-route.ts`, tambah:
   }
 
   const token = authHeader.replace('Bearer ', '');
-  const hasil = await userService.getCurrentUser(token);
+  const hasil = await userService.logout(token);
 
   if (!hasil.berhasil) {
     set.status = 401;
@@ -99,7 +83,7 @@ Buka `src/routes/user-route.ts`, tambah:
   }
 
   set.status = 200;
-  return { data: hasil.user };
+  return { data: 'OK' };
 });
 ```
 
@@ -114,20 +98,21 @@ TOKEN=$(curl -s -X POST http://localhost:3000/api/users/login \
   -H "Content-Type: application/json" \
   -d '{"email":"eko@localhost","password":"rahasia"}' | jq -r '.data')
 
-# Get current user
-curl -X GET http://localhost:3000/api/users/current \
+# Logout
+curl -X DELETE http://localhost:3000/api/users/logout \
   -H "Authorization: Bearer $TOKEN"
 
-# Tanpa token (harus gagal)
-curl -X GET http://localhost:3000/api/users/current
+# Coba get current user (harus gagal karena sudah logout)
+curl -X GET http://localhost:3000/api/users/current \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
 ## Catatan Penting
 
-1. **Authorization header** — format: "Bearer <token>"
-2. **Cari di sessions table** — bukan langsung dari token ambil user
-3. **401 status** — untuk unauthorized access
-4. **401 vs 403** — 401 = tidak ada token/salah token, 403 = tidak punya izin (nanti)
-5. **Token expired** (nanti) — cek created_at di sessions tabel
+1. **Hapus dari sessions table** — bukan dari users table
+2. **Satu token satu session** — hapus berdasarkan token saja
+3. **Setelah logout** — token tidak bisa digunakan lagi
+4. **Multiple sessions** — user bisa punya banyak token, logout hanya hapus yang ini
+5. **Auto logout** (nanti) — hapus session yang sudah lama (nanti cek created_at)
