@@ -64,6 +64,17 @@ class UserService {
       }
     };
   }
+
+  async logout(token: string) {
+    const session = await db.select().from(sessions).where(eq(sessions.token, token));
+    if (session.length === 0) {
+      return { berhasil: false };
+    }
+
+    await db.delete(sessions).where(eq(sessions.token, token));
+
+    return { berhasil: true };
+  }
 }
 
 export const userService = new UserService();
