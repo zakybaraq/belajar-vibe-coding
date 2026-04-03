@@ -23,4 +23,25 @@ export const userRoute = new Elysia()
 
     set.status = 201;
     return { data: 'OK' };
+  })
+  .post('/api/users/login', async ({ body, set }) => {
+    const { email, password } = body as {
+      email: string;
+      password: string;
+    };
+
+    if (!email || !password) {
+      set.status = 400;
+      return { error: 'isi semua field' };
+    }
+
+    const hasil = await userService.login(email, password);
+
+    if (!hasil.berhasil) {
+      set.status = 401;
+      return { error: hasil.pesan };
+    }
+
+    set.status = 200;
+    return { data: hasil.token };
   });

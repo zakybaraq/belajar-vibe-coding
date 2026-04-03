@@ -20,9 +20,11 @@
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
+    "@types/uuid": "^11.0.0",
     "bcrypt": "^6.0.0",
     "drizzle-orm": "^0.45.2",
     "elysia": "^1.4.28",
-    "mysql2": "^3.20.0"
+    "mysql2": "^3.20.0",
+    "uuid": "^13.0.0"
   }
 }
