@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daftar - Vibe Coding</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="logo">
+        <h1>Vibe Coding</h1>
+        <p>Buat akun baru</p>
+      </div>
+
+      <div id="alert" class="alert alert-error hidden"></div>
+      <div id="success" class="alert alert-success hidden"></div>
+
+      <form id="registerForm">
+        <div class="form-group">
+          <label for="name">Nama</label>
+          <input type="text" id="name" name="name" placeholder="Nama kamu" required>
+        </div>
+
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" placeholder="email@localhost" required>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" placeholder="rahasia" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Daftar</button>
+      </form>
+
+      <div class="link">
+        Sudah punya akun? <a href="/login.html">Masuk sekarang</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('registerForm');
+    const alert = document.getElementById('alert');
+    const success = document.getElementById('success');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const name = document.getElementById('name').value;
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, password })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          success.textContent = 'Akun berhasil dibuat! Mengarahkan ke halaman login...';
+          success.classList.remove('hidden');
+          form.reset();
+          setTimeout(() => {
+            window.location.href = '/login.html';
+          }, 2000);
+        } else {
+          alert.textContent = data.error;
+          alert.classList.remove('hidden');
+        }
+      } catch (err) {
+        alert.textContent = 'Terjadi kesalahan';
+        alert.classList.remove('hidden');
+      }
+    });
+  </script>
+</body>
+</html>

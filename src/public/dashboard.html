@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - Vibe Coding</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container dashboard">
+    <div class="header">
+      <h1>Dashboard</h1>
+      <button id="logoutBtn" class="btn-logout">Keluar</button>
+    </div>
+
+    <div id="alert" class="alert alert-error hidden"></div>
+
+    <div class="user-card">
+      <div class="field">
+        <span class="label">Nama</span>
+        <span class="value" id="userName">-</span>
+      </div>
+      <div class="field">
+        <span class="label">Email</span>
+        <span class="value" id="userEmail">-</span>
+      </div>
+      <div class="field">
+        <span class="label">Terdaftar sejak</span>
+        <span class="value" id="userCreatedAt">-</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+      window.location.href = '/login.html';
+    }
+
+    async function loadUser() {
+      try {
+        const res = await fetch('/api/users/current', {
+          headers: { 
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          localStorage.removeItem('token');
+          window.location.href = '/login.html';
+          return;
+        }
+
+        document.getElementById('userName').textContent = data.data.name;
+        document.getElementById('userEmail').textContent = data.data.email;
+        document.getElementById('userCreatedAt').textContent = new Date(data.data.createdAt).toLocaleDateString('id-ID', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+      } catch (err) {
+        window.location.href = '/login.html';
+      }
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try {
+        await fetch('/api/users/logout', {
+          method: 'DELETE',
+          headers: { 
+            'Authorization': `Bearer ${token}`
+          }
+        });
+      } finally {
+        localStorage.removeItem('token');
+        window.location.href = '/login.html';
+      }
+    });
+
+    loadUser();
+  </script>
+</body>
+</html>
