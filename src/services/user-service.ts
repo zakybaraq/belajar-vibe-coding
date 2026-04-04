@@ -6,6 +6,14 @@ import { v4 as uuidv4 } from 'uuid';
 
 class UserService {
   async daftar(name: string, email: string, password: string) {
+    if (name.length > 255) {
+      return { berhasil: false, pesan: 'Nama tidak boleh lebih dari 255 karakter' };
+    }
+
+    if (password.length < 6) {
+      return { berhasil: false, pesan: 'Password minimal 6 karakter' };
+    }
+
     const userSudahAda = await db.select().from(users).where(eq(users.email, email));
     if (userSudahAda.length > 0) {
       return { berhasil: false, pesan: 'email sudah terdaftar' };
