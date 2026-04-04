@@ -1,37 +1,20 @@
-# Feature: Get Current User
+# Bug: Validasi Input Registration
 
 ## Deskripsi
-Ambil data user yang sedang login berdasarkan token dari header Authorization.
+Saat user daftar dengan nama lebih dari 255 karakter, API mengembalikan error message yang tidak jelas: "Failed query". User tidak tahu mengapa gagal.
 
 ---
 
-## Endpoint API
+## Masalah
 
-**URL:** `GET /api/users/current`
+### Sekarang
+- POST /api/users tidak ada validasi panjang input
+- Kalau nama > 255 karakter, error dari database: "Failed query"
+- User bingung karena tidak tahu max panjang nama
 
-**Header:**
-```
-Authorization: Bearer <token>
-```
-
-**Response Kalau Berhasil:**
-```json
-{
-  "data": {
-    "id": 1,
-    "name": "eko",
-    "email": "eko@localhost",
-    "created_at": "2026-04-03T12:00:00.000Z"
-  }
-}
-```
-
-**Response Kalau Gagal:**
-```json
-{
-  "error": "Unauthorized"
-}
-```
+### Seharusnya
+- Validasi di service sebelum insert ke database
+- Error message yang jelas: "Nama tidak boleh lebih dari 255 karakter"
 
 ---
 
@@ -39,95 +22,65 @@ Authorization: Bearer <token>
 
 ```
 src/
-├── routes/
-│   └── user-route.ts
-└── services/
-    └── user-service.ts
+├── services/
+│   └── user-service.ts
 ```
 
 ---
 
-## Langkah-Langkah Pengerjaan
+## Langkah-Langkah Perbaikan
 
-### Langkah 1: Tambah Method getCurrentUser di Service
-Buka `src/services/user-service.ts`, tambah method:
+### Langkah 1: Tambah Validasi di Service
+Buka `src/services/user-service.ts`, ubah method `daftar`:
 
 ```typescript
-async getCurrentUser(token: string) {
-  // Cari token di tabel sessions
-  const session = await db.select().from(sessions).where(eq(sessions.token, token));
-  if (session.length === 0) {
-    return { berhasil: false };
+async daftar(name: string, email: string, password: string) {
+  // Validasi panjang nama
+  if (name.length > 255) {
+    return { berhasil: false, pesan: 'Nama tidak boleh lebih dari 255 karakter' };
   }
 
-  // Ambil data user berdasarkan user_id
-  const user = await db.select().from(users).where(eq(users.id, session[0].userId));
-  if (user.length === 0) {
-    return { berhasil: false };
+  // Validasi panjang password (nanti bisa disesuaikan)
+  if (password.length < 6) {
+    return { berhasil: false, pesan: 'Password minimal 6 karakter' };
   }
 
-  return {
-    berhasil: true,
-    user: {
-      id: user[0].id,
-      name: user[0].name,
-      email: user[0].email,
-      createdAt: user[0].createdAt,
-    }
-  };
+  const userSudahAda = await db.select().from(users).where(eq(users.email, email));
+  if (userSudahAda.length > 0) {
+    return { berhasil: false, pesan: 'email sudah terdaftar' };
+  }
+
+  const passwordDiacak = await bcrypt.hash(password, 10);
+
+  await db.insert(users).values({
+    name,
+    email,
+    password: passwordDiacak,
+  });
+
+  return { berhasil: true };
 }
-```
-
-### Langkah 2: Tambah Route Get Current User
-Buka `src/routes/user-route.ts`, tambah:
-
-```typescript
-.get('/api/users/current', async ({ headers, set }) => {
-  const authHeader = headers['authorization'];
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    set.status = 401;
-    return { error: 'Unauthorized' };
-  }
-
-  const token = authHeader.replace('Bearer ', '');
-  const hasil = await userService.getCurrentUser(token);
-
-  if (!hasil.berhasil) {
-    set.status = 401;
-    return { error: 'Unauthorized' };
-  }
-
-  set.status = 200;
-  return { data: hasil.user };
-});
 ```
 
 ---
 
 ## Cara Testing
 
-Pakai curl:
 ```bash
-# Login dulu dapat token
-TOKEN=$(curl -s -X POST http://localhost:3000/api/users/login \
+# Nama > 255 karakter (harus gagal dengan pesan jelas)
+curl -X POST http://localhost:3000/api/users \
   -H "Content-Type: application/json" \
-  -d '{"email":"eko@localhost","password":"rahasia"}' | jq -r '.data')
+  -d '{"name":"a...a (256 karakter)","email":"test@test.com","password":"rahasia"}'
 
-# Get current user
-curl -X GET http://localhost:3000/api/users/current \
-  -H "Authorization: Bearer $TOKEN"
-
-# Tanpa token (harus gagal)
-curl -X GET http://localhost:3000/api/users/current
+# Response harus:
+{"error":"Nama tidak boleh lebih dari 255 karakter"}
 ```
 
 ---
 
-## Catatan Penting
+## Catatan
 
-1. **Authorization header** — format: "Bearer <token>"
-2. **Cari di sessions table** — bukan langsung dari token ambil user
-3. **401 status** — untuk unauthorized access
-4. **401 vs 403** — 401 = tidak ada token/salah token, 403 = tidak punya izin (nanti)
-5. **Token expired** (nanti) — cek created_at di sessions tabel
+1. **Validasi di service** — lebih aman dari validasi di route
+2. **Password validation** — sambil tambahkan juga validasi password minimal
+3. **Email validation** — format email bisa ditambahkan (nanti)
+4. **Cleanup** — hapus komentar dalam bahasa asing di code
